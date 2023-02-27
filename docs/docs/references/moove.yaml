@@ -1,0 +1,426 @@
+openapi: 3.0.0
+info:
+  title: Moove
+  version: 1.0.0
+servers:
+  - url: http://{{moove_path}}
+tags:
+  - name: Circle
+  - name: Module
+  - name: Workspace
+paths:
+  /workspaces/{workspace_id}/circles/{circle_name}:
+    get:
+      tags:
+        - Circle
+      summary: Find by name
+      parameters:
+        - name: workspace_id
+          in: path
+          schema:
+            type: string
+          required: true
+        - name: circle_name
+          in: path
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+    put:
+      tags:
+        - Circle
+      summary: Update
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              example:
+                environments:
+                  - value: API_URL
+                    key: http://service.api.com.br
+                modules:
+                  - overrides:
+                      - value: mayconjrpacheco/dragonboarding:goku
+                        key: $.spec.template.spec.containers[0].image
+                    name: guestbook-ui
+                    revision: HEAD
+                name: teste-c
+                routing:
+                  match:
+                    customMatch:
+                      headers:
+                        x-product-id: aaaaaaaaaaa
+      parameters:
+        - name: workspace_id
+          in: path
+          schema:
+            type: string
+          required: true
+        - name: circle_name
+          in: path
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+    delete:
+      tags:
+        - Circle
+      summary: Delete
+      parameters:
+        - name: workspace_id
+          in: path
+          schema:
+            type: string
+          required: true
+        - name: circle_name
+          in: path
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+  /workspaces/{workspace_id}/circles/{circle_name}/resources/{resource_name}:
+    get:
+      tags:
+        - Circle
+      summary: Resource
+      parameters:
+        - name: group
+          in: query
+          schema:
+            type: string
+          example: apps
+        - name: kind
+          in: query
+          schema:
+            type: string
+          example: Deployment
+        - name: workspace_id
+          in: path
+          schema:
+            type: string
+          required: true
+        - name: circle_name
+          in: path
+          schema:
+            type: string
+          required: true
+        - name: resource_name
+          in: path
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+  /workspaces/{workspace_id}/circles/{circle_name}/resources/{resource_name}/events:
+    get:
+      tags:
+        - Circle
+      summary: Events
+      parameters:
+        - name: kind
+          in: query
+          schema:
+            type: string
+          example: ReplicaSet
+        - name: workspace_id
+          in: path
+          schema:
+            type: string
+          required: true
+        - name: circle_name
+          in: path
+          schema:
+            type: string
+          required: true
+        - name: resource_name
+          in: path
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+  /workspaces/{workspace_id}/circles/{circle_name}/resources/tree:
+    get:
+      tags:
+        - Circle
+      summary: Tree
+      parameters:
+        - name: workspace_id
+          in: path
+          schema:
+            type: string
+          required: true
+        - name: circle_name
+          in: path
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+  /workspaces/{workspace_id}/circles:
+    get:
+      tags:
+        - Circle
+      summary: Find all
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+          example: '10'
+        - name: workspace_id
+          in: path
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+    post:
+      tags:
+        - Circle
+      summary: Create
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              example:
+                environments:
+                  - value: API_URL
+                    key: http://service.api.com.br
+                modules:
+                  - overrides:
+                      - value: mayconjrpacheco/dragonboarding:goku
+                        key: $.spec.template.spec.containers[0].image
+                    name: guestbook-ui
+                    revision: HEAD
+                name: teste-f
+                routing:
+                  match:
+                    customMatch:
+                      headers:
+                        x-product-id: aaaaaaaaaaa
+      parameters:
+        - name: workspace_id
+          in: path
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+  /workspaces/{workspace_id}/circles/{circle_name}/sync:
+    post:
+      tags:
+        - Circle
+      summary: Sync
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              example: {}
+      parameters:
+        - name: workspace_id
+          in: path
+          schema:
+            type: string
+          required: true
+        - name: circle_name
+          in: path
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+  /workspaces/{workspace_id}/modules/{module_name}:
+    get:
+      tags:
+        - Module
+      summary: Find by name
+      parameters:
+        - name: workspace_id
+          in: path
+          schema:
+            type: string
+          required: true
+        - name: module_name
+          in: path
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+    post:
+      tags:
+        - Module
+      summary: Create
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              example:
+                name: guestbook-ui
+                path: guestbook
+                url: https://github.com/octopipe/circlerr-samples
+                templateType: simple
+      parameters:
+        - name: workspace_id
+          in: path
+          schema:
+            type: string
+          required: true
+        - name: module_name
+          in: path
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+    put:
+      tags:
+        - Module
+      summary: Update
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              example:
+                name: guestbook-ui
+                path: guestbook
+                url: https://github.com/octopipe/circlerr-samples
+                templateType: simple
+      parameters:
+        - name: workspace_id
+          in: path
+          schema:
+            type: string
+          required: true
+        - name: module_name
+          in: path
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+    delete:
+      tags:
+        - Module
+      summary: Delete
+      parameters:
+        - name: workspace_id
+          in: path
+          schema:
+            type: string
+          required: true
+        - name: module_name
+          in: path
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+  /workspaces/{workspace_id}/modules:
+    get:
+      tags:
+        - Module
+      summary: Find all
+      parameters:
+        - name: workspace_id
+          in: path
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+  /workspaces:
+    get:
+      tags:
+        - Workspace
+      summary: Find all
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+    post:
+      tags:
+        - Workspace
+      summary: Create
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              example:
+                name: Workspace test 1
+                description: Lorem ipsum
+                routingStrategy: circle
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}
+  /workspaces/{workspace_id}:
+    get:
+      tags:
+        - Workspace
+      summary: Find by id
+      parameters:
+        - name: workspace_id
+          in: path
+          schema:
+            type: string
+          required: true
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json: {}

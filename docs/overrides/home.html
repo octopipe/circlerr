@@ -1,0 +1,40 @@
+{% extends "base.html" %} {% block content %}
+<link rel="stylesheet" href="{{ 'assets/stylesheets/home.css' | url }}" />
+
+<div class="md-container home-page">
+  <section class="home-container">
+    <div class="home-page-background">
+      <svg width="802px" height="802px" viewBox="0 0 802 802" version="1.1"><title>88817846-AF84-449D-9657-6C77ED833FA7</title><g id="Landing-page" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd"><g id="LP---3.0---On-development" transform="translate(146.000000, -1184.000000)" stroke="#FFFFFF"><g id="Circles" transform="translate(-145.000000, 1185.000000)"><circle id="Circle-1" opacity="0.0599999987" cx="400" cy="400" r="200"></circle><circle id="Circle-2" opacity="0.0799999982" cx="400" cy="400" r="300"></circle><circle id="Circle-3" opacity="0.100000001" cx="400" cy="400" r="400"></circle></g></g></g></svg>
+
+    </div>
+    <div class="md-grid md-typeset">
+      <div class="mdx-hero">
+        <div class="headline-section">
+          <h1 class="main-headline">
+            Circlerr is a Open-Source and continuous delivery platform</br> that helps you release software changes with</br> high velocity and confidence.
+          </h1>
+          <h2>Learn about deploying in circles</h2>
+          <p style="display: block">
+            <a href="{{ 'getting-started/' | url }}" class="md-button white md-button--primary">Getting Started</a>
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section class="trusted-by-container">
+    <h3>Created by</h3>
+    <div id="usedby">
+      <div class="logo">
+        <img src="assets/zup-logo.png" alt="" draggable="false" />
+      </div>
+    </div>
+  </section>
+  <section class="what-deployment-circles">
+    <h1>What is the deployment in circles?</h1>
+  </section>
+</div>
+{% endblock %}
+
+{% block footer %}
+{% include "partials/footer.html" %}
+{% endblock %}

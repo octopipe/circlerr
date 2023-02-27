@@ -1,0 +1,66 @@
+site_name: Circlerr
+repo_url: https://github.com/octopipe/circlerr
+edit_uri: edit/main/docs
+
+
+extra_css:
+  - stylesheets/extra.css
+
+theme:
+  name: material
+  logo: assets/logo.png
+  favicon: assets/favicon-32x32.png
+  custom_dir: overrides
+  features:
+    - navigation.tabs
+    - navigation.tracking
+    - navigation.tabs.sticky
+    - navigation.top
+
+plugins:
+  - render_swagger
+
+markdown_extensions:
+  - pymdownx.emoji:
+      emoji_index: !!python/name:materialx.emoji.twemoji
+      emoji_generator: !!python/name:materialx.emoji.to_svg
+  - attr_list
+  - meta
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - pymdownx.keys
+  - pymdownx.caret
+  - pymdownx.mark
+  - pymdownx.tilde
+  - pymdownx.escapeall
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - admonition
+  - toc:
+      permalink: true
+  - def_list
+
+nav:
+  - Home: index.md
+  - About:
+    - Overview: about/README.md
+    - Concepts: about/concepts.md
+  - Install:
+      - Overview: install/README.md
+      - Install Circlerr with YAML: install/install-circlerr-with-yaml.md
+  - References: 
+    - Moove API: references/moove-api.md
+
+watch:
+  - overrides
+
+awesome-pages:
+    filename: ".index"
+    collapse_single_pages: true
+    strict: false
