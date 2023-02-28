@@ -10,6 +10,7 @@ import (
 	"github.com/octopipe/circlerr/internal/cache"
 	"github.com/octopipe/circlerr/internal/k8scontrollers"
 	"github.com/octopipe/circlerr/internal/reconciler"
+	"github.com/octopipe/circlerr/internal/template"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/discovery"
@@ -44,7 +45,7 @@ func main() {
 	config := ctrl.GetConfigOrDie()
 	discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(config)
 	dynamicClient := dynamic.NewForConfigOrDie(config)
-	k8sReconciler := reconciler.NewReconciler(discoveryClient, dynamicClient, cache.NewInMemoryCache())
+	k8sReconciler := reconciler.NewReconciler(discoveryClient, dynamicClient, cache.NewInMemoryCache(), template.NewTemplate(mgr.GetClient()))
 
 	err = k8sReconciler.Preload(context.Background())
 	if err != nil {
