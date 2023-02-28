@@ -1,11 +1,8 @@
 package cache
 
 import (
-	"bytes"
 	"fmt"
-	"os"
 	"sync"
-	"time"
 
 	"github.com/octopipe/circlerr/internal/resource"
 )
@@ -20,25 +17,6 @@ func NewInMemoryCache() Cache {
 	localCache := &localCache{
 		cache: make(map[string]resource.Resource),
 	}
-
-	go func() {
-		ticker := time.NewTicker(5 * time.Second)
-		for {
-			select {
-			case <-ticker.C:
-				f, err := os.Create(fmt.Sprintf("data/snapshot"))
-				if err != nil {
-					panic(err)
-				}
-				buf := bytes.Buffer{}
-				for key, res := range localCache.cache {
-					buf.WriteString(fmt.Sprintf("[%s]: %v\n", key, res))
-				}
-				f.Write(buf.Bytes())
-			}
-		}
-
-	}()
 
 	return localCache
 }
