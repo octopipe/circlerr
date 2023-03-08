@@ -32,13 +32,13 @@ func NewTemplate(client client.Client) Manager {
 	}
 }
 
-func (t Manager) GetObjects(ctx context.Context, circle circlerriov1alpha1.Circle) ([]*unstructured.Unstructured, error) {
-	objects := []*unstructured.Unstructured{}
+func (t Manager) GetObjects(ctx context.Context, circle circlerriov1alpha1.Circle) (map[circlerriov1alpha1.CircleModuleKey][]*unstructured.Unstructured, error) {
+	objects := map[circlerriov1alpha1.CircleModuleKey][]*unstructured.Unstructured{}
 
 	for _, circleModule := range circle.Spec.Modules {
 		module := &circlerriov1alpha1.Module{}
-		moduleNamespacedName := types.NamespacedName{Namespace: circleModule.Namespace, Name: circleModule.Name}
-		err := t.Get(ctx, moduleNamespacedName, module)
+		moduleKey := types.NamespacedName{Namespace: circleModule.Namespace, Name: circleModule.Name}
+		err := t.Get(ctx, moduleKey, module)
 		if err != nil {
 			return nil, err
 		}
@@ -62,7 +62,12 @@ func (t Manager) GetObjects(ctx context.Context, circle circlerriov1alpha1.Circl
 
 				object.SetName(fmt.Sprintf("%s-%s", circle.GetName(), object.GetName()))
 				object = annotation.AddDefaultAnnotationsToObject(object, *module, circle, m)
-				objects = append(objects, object)
+				circleModuleKey := circlerriov1alpha1.CircleModuleKey{
+					Name:      circleModule.Name,
+					Namespace: circleModule.Namespace,
+					Revision:  circleModule.Revision,
+				}
+				objects[circleModuleKey] = append(objects[circleModuleKey], object)
 			}
 		}
 	}

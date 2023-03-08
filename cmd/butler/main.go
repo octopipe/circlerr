@@ -8,6 +8,7 @@ import (
 
 	circlerriov1alpha1 "github.com/octopipe/circlerr/internal/api/v1alpha1"
 	"github.com/octopipe/circlerr/internal/cache"
+	"github.com/octopipe/circlerr/internal/gitmanager"
 	"github.com/octopipe/circlerr/internal/k8scontrollers"
 	"github.com/octopipe/circlerr/internal/reconciler"
 	"github.com/octopipe/circlerr/internal/template"
@@ -45,6 +46,8 @@ func main() {
 	config := ctrl.GetConfigOrDie()
 	discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(config)
 	dynamicClient := dynamic.NewForConfigOrDie(config)
+	gitManager := gitmanager.NewManager(mgr.GetClient())
+	templateManager := template.NewTemplate(mgr.GetClient())
 	k8sReconciler := reconciler.NewReconciler(discoveryClient, dynamicClient, cache.NewInMemoryCache(), template.NewTemplate(mgr.GetClient()))
 
 	err = k8sReconciler.Preload(context.Background())
@@ -52,7 +55,13 @@ func main() {
 		panic(err)
 	}
 
-	k8sCircleController := k8scontrollers.NewCircleController(mgr.GetClient(), mgr.GetScheme(), k8sReconciler)
+	k8sCircleController := k8scontrollers.NewCircleController(
+		mgr.GetClient(),
+		mgr.GetScheme(),
+		gitManager,
+		templateManager,
+		k8sReconciler,
+	)
 	if err := k8sCircleController.SetupWithManager(mgr); err != nil {
 		panic(err)
 	}

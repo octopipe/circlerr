@@ -72,11 +72,17 @@ type CircleStatusHistory struct {
 	Action    string `json:"action,omitempty"`
 }
 
+type CircleModuleKey struct {
+	Name      string `json:"name,omitempty" validate:"required"`
+	Revision  string `json:"revision,omitempty"`
+	Namespace string `json:"namespace,omitempty" validate:"required"`
+}
+
 type CircleStatus struct {
-	History    []CircleStatusHistory         `json:"history,omitempty"`
-	SyncStatus string                        `json:"syncStatus,omitempty"`
-	SyncedAt   string                        `json:"syncTime,omitempty"`
-	Modules    map[string]CircleModuleStatus `json:"modules,omitempty"`
+	History    []CircleStatusHistory                  `json:"history,omitempty"`
+	SyncStatus string                                 `json:"syncStatus,omitempty"`
+	SyncedAt   string                                 `json:"syncTime,omitempty"`
+	Modules    map[CircleModuleKey]CircleModuleStatus `json:"modules,omitempty"`
 }
 
 //+kubebuilder:object:root=true

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	circlerriov1alpha1 "github.com/octopipe/circlerr/internal/api/v1alpha1"
 	"github.com/octopipe/circlerr/internal/cache"
 	"github.com/octopipe/circlerr/internal/resource"
 	"github.com/octopipe/circlerr/internal/template"
@@ -34,7 +33,7 @@ var (
 
 type Reconciler interface {
 	Preload(ctx context.Context) error
-	Reconcile(ctx context.Context, circle circlerriov1alpha1.Circle) error
+	Reconcile(ctx context.Context, objects []*unstructured.Unstructured, namespace string) error
 }
 
 type reconciler struct {
@@ -86,11 +85,7 @@ func (r reconciler) Preload(ctx context.Context) error {
 	return nil
 }
 
-func (r reconciler) Reconcile(ctx context.Context, circle circlerriov1alpha1.Circle) error {
-	objects, err := r.templateManager.GetObjects(ctx, circle)
-	if err != nil {
-		return nil
-	}
+func (r reconciler) Reconcile(ctx context.Context, objects []*unstructured.Unstructured, namespace string) error {
 
 	for _, un := range objects {
 		apiResourceList, err := r.dicoveryClient.ServerResourcesForGroupVersion(un.GroupVersionKind().GroupVersion().String())
@@ -104,7 +99,7 @@ func (r reconciler) Reconcile(ctx context.Context, circle circlerriov1alpha1.Cir
 			}
 
 			gvr := un.GroupVersionKind().GroupVersion().WithResource(apiResource.Name)
-			dynamicResource := r.dynamicClient.Resource(gvr).Namespace(circle.Spec.Namespace)
+			dynamicResource := r.dynamicClient.Resource(gvr).Namespace(namespace)
 			_, err = dynamicResource.Apply(ctx, un.GetName(), un, v1.ApplyOptions{})
 			if err != nil {
 				return err

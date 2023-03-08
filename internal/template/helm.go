@@ -33,7 +33,7 @@ func (t helmTemplate) GetManifests(ctx context.Context, module circlerriov1alpha
 	}
 
 	vals := map[string]interface{}{}
-	repositoryPath := fmt.Sprintf("%s/%s", os.Getenv("REPOSITORIES_TMP_DIR"), module.Spec.Path)
+	repositoryPath := fmt.Sprintf("%s/%s", os.Getenv("GIT_TMP_DIR"), module.Spec.Path)
 	chart, err := loader.Load(filepath.Join(repositoryPath, module.Spec.Path))
 	if err != nil {
 		panic(err)

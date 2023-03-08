@@ -24,7 +24,7 @@ func (t simpleTemplate) GetManifests(ctx context.Context, module circlerriov1alp
 	manifests := [][]byte{}
 
 	deploymentPath := module.Spec.Path
-	repositoryPath := fmt.Sprintf("%s/%s", os.Getenv("REPOSITORIES_TMP_DIR"), module.Spec.Path)
+	repositoryPath := fmt.Sprintf("%s/%s", os.Getenv("GIT_TMP_DIR"), module.Spec.Path)
 	if err := filepath.Walk(filepath.Join(repositoryPath, deploymentPath), func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
