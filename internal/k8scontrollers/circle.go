@@ -2,6 +2,7 @@ package k8scontrollers
 
 import (
 	"context"
+	"time"
 
 	circlerriov1alpha1 "github.com/octopipe/circlerr/internal/api/v1alpha1"
 	"github.com/octopipe/circlerr/internal/gitmanager"
@@ -70,7 +71,38 @@ func (r *circleController) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
-	err = r.reconciler.Reconcile(ctx, objects, circle.Spec.Namespace)
+	circleModulesStatus := map[circlerriov1alpha1.CircleModuleKey]circlerriov1alpha1.CircleModuleStatus{}
+	for moduleKey, objects := range objects {
+		err := r.reconciler.Reconcile(ctx, objects, circle.Spec.Namespace)
+		if err != nil {
+			circleModulesStatus[moduleKey] = circlerriov1alpha1.CircleModuleStatus{
+				SyncedAt: time.Now().String(),
+				Error:    err.Error(),
+			}
+
+			continue
+		}
+
+		resources := []circlerriov1alpha1.CircleModuleResource{}
+		for _, o := range objects {
+			resources = append(resources, circlerriov1alpha1.CircleModuleResource{
+				Group:     o.GroupVersionKind().Group,
+				Kind:      o.GroupVersionKind().Kind,
+				Namespace: o.GetNamespace(),
+				Name:      o.GetName(),
+			})
+		}
+
+		circleModulesStatus[moduleKey] = circlerriov1alpha1.CircleModuleStatus{
+			Resources: resources,
+			SyncedAt:  time.Now().String(),
+		}
+	}
+
+	circle.Status = circlerriov1alpha1.CircleStatus{
+		Modules: circleModulesStatus,
+	}
+	err = r.Status().Update(ctx, &circle)
 	if err != nil {
 		return ctrl.Result{}, err
 	}

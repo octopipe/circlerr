@@ -115,30 +115,7 @@ spec:
                       type: string
                   type: object
                 type: array
-              modules:
-                additionalProperties:
-                  properties:
-                    error:
-                      type: string
-                    resources:
-                      items:
-                        properties:
-                          group:
-                            type: string
-                          kind:
-                            type: string
-                          name:
-                            type: string
-                          namespace:
-                            type: string
-                        type: object
-                      type: array
-                    syncStatus:
-                      type: string
-                    syncTime:
-                      type: string
-                  type: object
-                type: object
+              modules: {}
               syncStatus:
                 type: string
               syncTime:
