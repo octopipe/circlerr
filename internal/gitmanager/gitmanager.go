@@ -153,14 +153,14 @@ func (r manager) Sync(module circlerriov1alpha1.Module) error {
 		gitCloneConfig.Auth = authMethod
 	}
 
-	path := fmt.Sprintf("%s/%s", os.Getenv("REPOSITORIES_TMP_DIR"), module.Spec.Path)
-	repo, err := git.PlainClone(path, false, gitCloneConfig)
-	if err != nil && !strings.Contains(err.Error(), "manager already exists") {
+	repositoryPath := fmt.Sprintf("%s/%s", os.Getenv("GIT_TMP_DIR"), module.Spec.Url)
+	repo, err := git.PlainClone(repositoryPath, false, gitCloneConfig)
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		return err
 	}
 
-	if strings.Contains(err.Error(), "manager already exists") {
-		repo, err = git.PlainOpen(path)
+	if err != nil && strings.Contains(err.Error(), "already exists") {
+		repo, err = git.PlainOpen(repositoryPath)
 		if err != nil {
 			return err
 		}

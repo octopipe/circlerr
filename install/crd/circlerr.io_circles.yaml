@@ -48,6 +48,7 @@ spec:
                   type: object
                 type: array
               modules:
+                description: Routing      CircleRouting        `json:"routing,omitempty"`
                 items:
                   properties:
                     name:
@@ -69,36 +70,6 @@ spec:
                 type: array
               namespace:
                 type: string
-              routing:
-                properties:
-                  canary:
-                    properties:
-                      weight:
-                        type: integer
-                    required:
-                    - weight
-                    type: object
-                  match:
-                    properties:
-                      headers:
-                        additionalProperties:
-                          type: string
-                        type: object
-                    type: object
-                  segments:
-                    items:
-                      properties:
-                        condition:
-                          type: string
-                        key:
-                          type: string
-                        value:
-                          type: string
-                      type: object
-                    type: array
-                  strategy:
-                    type: string
-                type: object
             type: object
           status:
             properties:
@@ -115,7 +86,37 @@ spec:
                       type: string
                   type: object
                 type: array
-              modules: {}
+              resources:
+                items:
+                  properties:
+                    group:
+                      type: string
+                    kind:
+                      type: string
+                    module:
+                      properties:
+                        name:
+                          type: string
+                        namespace:
+                          type: string
+                        revision:
+                          type: string
+                      type: object
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                    status:
+                      properties:
+                        error:
+                          type: string
+                        syncStatus:
+                          type: string
+                        syncTime:
+                          type: string
+                      type: object
+                  type: object
+                type: array
               syncStatus:
                 type: string
               syncTime:

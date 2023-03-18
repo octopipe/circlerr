@@ -6,12 +6,14 @@ import (
 )
 
 const (
-	SnapshotAnnotation        = "circlerr.io/snapshot"
-	ControlledByAnnotation    = "circlerr.io/controlled-by"
-	CircleNameAnnotation      = "circlerr.io/circle-name"
-	CircleNamespaceAnnotation = "circlerr.io/circle-namespace"
-	ModuleNameAnnotation      = "circlerr.io/module-name"
-	ModuleNamespaceAnnotation = "circlerr.io/module-namespace"
+	SnapshotAnnotation          = "circlerr.io/snapshot"
+	ControlledByAnnotation      = "circlerr.io/controlled-by"
+	ControlledByAnnotationValue = "circlerr.io"
+	CircleNameAnnotation        = "circlerr.io/circle-name"
+	CircleNamespaceAnnotation   = "circlerr.io/circle-namespace"
+	ModuleNameAnnotation        = "circlerr.io/module-name"
+	ModuleNamespaceAnnotation   = "circlerr.io/module-namespace"
+	ModuleRevisionAnnotation    = "circlerr.io/module-revision"
 )
 
 func AddDefaultAnnotationsToObject(
@@ -26,7 +28,7 @@ func AddDefaultAnnotationsToObject(
 	}
 
 	annotations[SnapshotAnnotation] = snapshot
-	annotations[ControlledByAnnotation] = "circlerr.io"
+	annotations[ControlledByAnnotation] = ControlledByAnnotationValue
 	annotations[CircleNameAnnotation] = circle.GetName()
 	annotations[CircleNamespaceAnnotation] = circle.GetNamespace()
 	annotations[ModuleNameAnnotation] = module.GetName()

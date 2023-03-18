@@ -43,26 +43,12 @@ type CircleRouting struct {
 }
 
 type CircleSpec struct {
-	Author       string               `json:"author,omitempty" default:"anonymous"`
-	Description  string               `json:"description,omitempty"`
-	Namespace    string               `json:"namespace,omitempty" validate:"required"`
-	Routing      CircleRouting        `json:"routing,omitempty"`
+	Author      string `json:"author,omitempty" default:"anonymous"`
+	Description string `json:"description,omitempty"`
+	Namespace   string `json:"namespace,omitempty" validate:"required"`
+	// Routing      CircleRouting        `json:"routing,omitempty"`
 	Modules      []CircleModule       `json:"modules,omitempty"`
 	Environments []CircleEnvironments `json:"environments,omitempty"`
-}
-
-type CircleModuleResource struct {
-	Group     string `json:"group,omitempty"`
-	Kind      string `json:"kind,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Namespace string `json:"namespace,omitempty"`
-}
-
-type CircleModuleStatus struct {
-	SyncedAt   string                 `json:"syncTime,omitempty"`
-	SyncStatus string                 `json:"syncStatus,omitempty"`
-	Error      string                 `json:"error,omitempty"`
-	Resources  []CircleModuleResource `json:"resources,omitempty"`
 }
 
 type CircleStatusHistory struct {
@@ -72,17 +58,32 @@ type CircleStatusHistory struct {
 	Action    string `json:"action,omitempty"`
 }
 
-type CircleModuleKey struct {
+type CircleResourceModule struct {
 	Name      string `json:"name,omitempty" validate:"required"`
 	Revision  string `json:"revision,omitempty"`
 	Namespace string `json:"namespace,omitempty" validate:"required"`
 }
 
+type CircleResourceStatus struct {
+	SyncedAt   string `json:"syncTime,omitempty"`
+	SyncStatus string `json:"syncStatus,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+type CircleStatusResource struct {
+	Group     string               `json:"group,omitempty"`
+	Kind      string               `json:"kind,omitempty"`
+	Name      string               `json:"name,omitempty"`
+	Namespace string               `json:"namespace,omitempty"`
+	Status    CircleResourceStatus `json:"status,omitempty"`
+	Module    CircleResourceModule `json:"module,omitempty"`
+}
+
 type CircleStatus struct {
-	History    []CircleStatusHistory                  `json:"history,omitempty"`
-	SyncStatus string                                 `json:"syncStatus,omitempty"`
-	SyncedAt   string                                 `json:"syncTime,omitempty"`
-	Modules    map[CircleModuleKey]CircleModuleStatus `json:"modules,omitempty"`
+	History    []CircleStatusHistory  `json:"history,omitempty"`
+	SyncStatus string                 `json:"syncStatus,omitempty"`
+	SyncedAt   string                 `json:"syncTime,omitempty"`
+	Resources  []CircleStatusResource `json:"resources,omitempty"`
 }
 
 //+kubebuilder:object:root=true

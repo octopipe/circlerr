@@ -1,0 +1,10 @@
+apiVersion: circlerr.io/v1alpha1
+kind: Module
+metadata:
+  name: module-1
+spec:
+  author: Maycon Pacheco
+  description: Lorem ipsum
+  path: guestbook
+  url: https://github.com/octopipe/charlescd-samples
+  templateType: SIMPLE

@@ -19,9 +19,13 @@ type Resource struct {
 	Group        string
 	Kind         string
 	Version      string
-	Resource     string
+	ResourceName string
 	Namespace    string
 	Owners       []ResourceOwner
+}
+
+type ManagedResource struct {
+	Resource
 	Manifest     string
 	Unstructured *unstructured.Unstructured
 }
@@ -48,20 +52,50 @@ func ToResource(un *unstructured.Unstructured, resource string) Resource {
 		})
 	}
 
+	return Resource{
+		Name:         un.GetName(),
+		Group:        un.GroupVersionKind().Group,
+		Kind:         un.GetKind(),
+		Version:      un.GroupVersionKind().Version,
+		ResourceName: resource,
+		Namespace:    un.GetNamespace(),
+		Owners:       owners,
+	}
+}
+func ToManagedResource(un *unstructured.Unstructured, resource string) ManagedResource {
+	owners := []ResourceOwner{}
+
+	for _, o := range un.GetOwnerReferences() {
+		isController := false
+
+		if o.Controller != nil {
+			isController = *o.Controller
+		}
+
+		owners = append(owners, ResourceOwner{
+			Name:         o.Name,
+			Kind:         o.Kind,
+			IsController: isController,
+			Version:      o.APIVersion,
+		})
+	}
+
 	manifest := ""
 	snapshot, ok := un.GetAnnotations()[annotation.SnapshotAnnotation]
 	if ok {
 		manifest = snapshot
 	}
 
-	return Resource{
-		Name:         un.GetName(),
-		Group:        un.GroupVersionKind().Group,
-		Kind:         un.GetKind(),
-		Version:      un.GroupVersionKind().Version,
-		Resource:     resource,
-		Namespace:    un.GetNamespace(),
-		Owners:       owners,
+	return ManagedResource{
+		Resource: Resource{
+			Name:         un.GetName(),
+			Group:        un.GroupVersionKind().Group,
+			Kind:         un.GetKind(),
+			Version:      un.GroupVersionKind().Version,
+			ResourceName: resource,
+			Namespace:    un.GetNamespace(),
+			Owners:       owners,
+		},
 		Manifest:     manifest,
 		Unstructured: un,
 	}

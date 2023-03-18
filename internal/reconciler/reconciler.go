@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"time"
 
+	circlerriov1alpha1 "github.com/octopipe/circlerr/internal/api/v1alpha1"
 	"github.com/octopipe/circlerr/internal/cache"
 	"github.com/octopipe/circlerr/internal/resource"
 	"github.com/octopipe/circlerr/internal/template"
+	"github.com/octopipe/circlerr/internal/utils/annotation"
 	"github.com/sergi/go-diff/diffmatchpatch"
 	"golang.org/x/sync/errgroup"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -33,16 +35,17 @@ var (
 
 type Reconciler interface {
 	Preload(ctx context.Context) error
-	Reconcile(ctx context.Context, objects []*unstructured.Unstructured, namespace string) error
+	Reconcile(ctx context.Context, circle circlerriov1alpha1.Circle, objects []*unstructured.Unstructured) ([]circlerriov1alpha1.CircleStatusResource, error)
 }
 
 type reconciler struct {
-	dicoveryClient  *discovery.DiscoveryClient
-	dynamicClient   *dynamic.DynamicClient
-	cache           cache.Cache
-	deserializer    runtime.Decoder
-	dmp             *diffmatchpatch.DiffMatchPatch
-	templateManager template.Manager
+	dicoveryClient     *discovery.DiscoveryClient
+	dynamicClient      *dynamic.DynamicClient
+	cache              cache.Cache
+	deserializer       runtime.Decoder
+	dmp                *diffmatchpatch.DiffMatchPatch
+	templateManager    template.Manager
+	preferredResources *v1.APIResourceList
 }
 
 func NewReconciler(
@@ -52,12 +55,13 @@ func NewReconciler(
 	templateManager template.Manager,
 ) Reconciler {
 	return reconciler{
-		dicoveryClient:  dicoveryClient,
-		dynamicClient:   dynamicClient,
-		cache:           cache,
-		deserializer:    clientgoscheme.Codecs.UniversalDeserializer(),
-		dmp:             diffmatchpatch.New(),
-		templateManager: templateManager,
+		dicoveryClient:     dicoveryClient,
+		dynamicClient:      dynamicClient,
+		cache:              cache,
+		deserializer:       clientgoscheme.Codecs.UniversalDeserializer(),
+		dmp:                diffmatchpatch.New(),
+		templateManager:    templateManager,
+		preferredResources: &v1.APIResourceList{},
 	}
 }
 
@@ -70,7 +74,7 @@ func (r reconciler) Preload(ctx context.Context) error {
 	g, _ := errgroup.WithContext(ctx)
 	for _, resourceList := range apiResouceList {
 		for _, resource := range resourceList.APIResources {
-			if _, ok := ignoredResources[resource.Name]; ok || !IsSupportedVerb(resource.Verbs) {
+			if _, ok := ignoredResources[resource.Name]; ok || !isSupportedVerb(resource.Verbs) {
 				continue
 			}
 
@@ -85,29 +89,78 @@ func (r reconciler) Preload(ctx context.Context) error {
 	return nil
 }
 
-func (r reconciler) Reconcile(ctx context.Context, objects []*unstructured.Unstructured, namespace string) error {
+func (r reconciler) Reconcile(ctx context.Context, circle circlerriov1alpha1.Circle, objects []*unstructured.Unstructured) ([]circlerriov1alpha1.CircleStatusResource, error) {
+	mappedCircleResources := map[string]resource.ManagedResource{}
+	appliedResources := map[string]string{}
+	managedObjectsKeys := r.cache.ListManagedObjects()
+	result := []circlerriov1alpha1.CircleStatusResource{}
 
-	for _, un := range objects {
-		apiResourceList, err := r.dicoveryClient.ServerResourcesForGroupVersion(un.GroupVersionKind().GroupVersion().String())
-		if err != nil {
-			return err
-		}
+	for _, key := range managedObjectsKeys {
+		managedObject := r.cache.GetManagedObject(key)
+		fmt.Println("MAPPED", managedObject.Unstructured.GetAnnotations())
+		if r.isSameCircle(managedObject.Unstructured, circle.Name, circle.Namespace) {
+			mappedCircleResources[key] = managedObject
 
-		for _, apiResource := range apiResourceList.APIResources {
-			if !IsSupportedVerb(apiResource.Verbs) {
-				continue
-			}
-
-			gvr := un.GroupVersionKind().GroupVersion().WithResource(apiResource.Name)
-			dynamicResource := r.dynamicClient.Resource(gvr).Namespace(namespace)
-			_, err = dynamicResource.Apply(ctx, un.GetName(), un, v1.ApplyOptions{})
-			if err != nil {
-				return err
-			}
 		}
 	}
 
-	return nil
+	for _, un := range objects {
+		resourceName, err := r.getServerResource(un)
+		if err != nil {
+			return nil, err
+		}
+
+		gvr := un.GroupVersionKind().GroupVersion().WithResource(resourceName)
+		dynamicResource := r.dynamicClient.Resource(gvr).Namespace(circle.Spec.Namespace)
+		managedResource := resource.ToManagedResource(un, resourceName)
+
+		if _, ok := mappedCircleResources[managedResource.GetKey()]; !ok {
+
+			_, err = dynamicResource.Create(ctx, un, v1.CreateOptions{})
+			if err != nil {
+				fmt.Println("CREATE APPLY", err)
+				return nil, err
+			}
+		} else {
+			_, err = dynamicResource.Update(ctx, un, v1.UpdateOptions{})
+			if err != nil {
+				fmt.Println("UPDATE APPLY", err)
+				return nil, err
+			}
+		}
+
+		appliedResources[managedResource.GetKey()] = ""
+		r.cache.SetManagedObject(managedResource.GetKey(), managedResource)
+
+		result = append(result, circlerriov1alpha1.CircleStatusResource{
+			Group:     un.GroupVersionKind().Group,
+			Kind:      un.GroupVersionKind().Kind,
+			Namespace: un.GetNamespace(),
+			Name:      un.GetName(),
+			Status: circlerriov1alpha1.CircleResourceStatus{
+				SyncedAt: time.Now().String(),
+			},
+			Module: circlerriov1alpha1.CircleResourceModule{
+				Name:      un.GetAnnotations()[annotation.ModuleNameAnnotation],
+				Namespace: un.GetAnnotations()[annotation.ModuleNamespaceAnnotation],
+			},
+		})
+	}
+
+	for key, m := range mappedCircleResources {
+		if _, ok := appliedResources[key]; ok {
+			continue
+		}
+
+		gvr := m.Unstructured.GroupVersionKind().GroupVersion().WithResource(m.ResourceName)
+		dynamicResource := r.dynamicClient.Resource(gvr).Namespace(circle.Spec.Namespace)
+		err := dynamicResource.Delete(ctx, m.Unstructured.GetName(), v1.DeleteOptions{})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return result, nil
 }
 
 func (r reconciler) syncCache(ctx context.Context, resourceList *v1.APIResourceList, apiResource v1.APIResource, isManagedObject func(un *unstructured.Unstructured) bool) func() error {
@@ -122,9 +175,14 @@ func (r reconciler) syncCache(ctx context.Context, resourceList *v1.APIResourceL
 		}
 
 		for _, un := range uns.Items {
+			if IsManagedObject(&un) {
+				newResource := resource.ToManagedResource(&un, apiResource.Name)
+				r.cache.SetManagedObject(newResource.GetKey(), newResource)
+			} else {
+				newResource := resource.ToResource(&un, apiResource.Name)
+				r.cache.Set(newResource.GetKey(), newResource)
+			}
 
-			newResource := resource.ToResource(&un, apiResource.Name)
-			r.cache.Set(newResource.GetKey(), newResource)
 		}
 
 		go r.watch(ctx, uns.GetResourceVersion(), apiResource.Name, dynamicInterface)
@@ -170,8 +228,13 @@ func (r reconciler) watch(ctx context.Context, resourceVersion string, apiResour
 				if event.Type == watch.Deleted && r.cache.Has(key) {
 					r.cache.Delete(key)
 				} else {
-					currRes := resource.ToResource(obj, apiResourceName)
-					r.cache.Set(currRes.GetKey(), currRes)
+					if IsManagedObject(obj) {
+						newResource := resource.ToManagedResource(obj, apiResourceName)
+						r.cache.SetManagedObject(newResource.GetKey(), newResource)
+					} else {
+						newResource := resource.ToResource(obj, apiResourceName)
+						r.cache.Set(newResource.GetKey(), newResource)
+					}
 				}
 			}
 		}

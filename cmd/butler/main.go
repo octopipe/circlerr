@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"runtime/metrics"
-	"time"
 
+	"github.com/joho/godotenv"
 	circlerriov1alpha1 "github.com/octopipe/circlerr/internal/api/v1alpha1"
 	"github.com/octopipe/circlerr/internal/cache"
 	"github.com/octopipe/circlerr/internal/gitmanager"
@@ -31,6 +31,7 @@ func init() {
 }
 
 func main() {
+	_ = godotenv.Load()
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
 		MetricsBindAddress:     ":8000",
@@ -73,13 +74,13 @@ func main() {
 		panic(err)
 	}
 
-	go func() {
-		ticker := time.NewTicker(time.Second * 5)
-		for {
-			<-ticker.C
-			tmpMetrics()
-		}
-	}()
+	// go func() {
+	// 	ticker := time.NewTicker(time.Second * 5)
+	// 	for {
+	// 		<-ticker.C
+	// 		tmpMetrics()
+	// 	}
+	// }()
 
 	fmt.Println("start butler controller")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {

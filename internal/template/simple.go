@@ -24,7 +24,8 @@ func (t simpleTemplate) GetManifests(ctx context.Context, module circlerriov1alp
 	manifests := [][]byte{}
 
 	deploymentPath := module.Spec.Path
-	repositoryPath := fmt.Sprintf("%s/%s", os.Getenv("GIT_TMP_DIR"), module.Spec.Path)
+	repositoryPath := fmt.Sprintf("%s/%s", os.Getenv("GIT_TMP_DIR"), module.Spec.Url)
+
 	if err := filepath.Walk(filepath.Join(repositoryPath, deploymentPath), func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -35,10 +36,12 @@ func (t simpleTemplate) GetManifests(ctx context.Context, module circlerriov1alp
 		if ext := strings.ToLower(filepath.Ext(info.Name())); ext != ".json" && ext != ".yml" && ext != ".yaml" {
 			return nil
 		}
+
 		data, err := ioutil.ReadFile(path)
 		if err != nil {
 			return err
 		}
+
 		manifests = append(manifests, data)
 		return nil
 	}); err != nil {

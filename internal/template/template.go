@@ -32,8 +32,8 @@ func NewTemplate(client client.Client) Manager {
 	}
 }
 
-func (t Manager) GetObjects(ctx context.Context, circle circlerriov1alpha1.Circle) (map[circlerriov1alpha1.CircleModuleKey][]*unstructured.Unstructured, error) {
-	objects := map[circlerriov1alpha1.CircleModuleKey][]*unstructured.Unstructured{}
+func (t Manager) GetObjects(ctx context.Context, circle circlerriov1alpha1.Circle) ([]*unstructured.Unstructured, error) {
+	objects := []*unstructured.Unstructured{}
 
 	for _, circleModule := range circle.Spec.Modules {
 		module := &circlerriov1alpha1.Module{}
@@ -62,12 +62,7 @@ func (t Manager) GetObjects(ctx context.Context, circle circlerriov1alpha1.Circl
 
 				object.SetName(fmt.Sprintf("%s-%s", circle.GetName(), object.GetName()))
 				object = annotation.AddDefaultAnnotationsToObject(object, *module, circle, m)
-				circleModuleKey := circlerriov1alpha1.CircleModuleKey{
-					Name:      circleModule.Name,
-					Namespace: circleModule.Namespace,
-					Revision:  circleModule.Revision,
-				}
-				objects[circleModuleKey] = append(objects[circleModuleKey], object)
+				objects = append(objects, object)
 			}
 		}
 	}
