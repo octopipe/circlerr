@@ -3,8 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
+	"net/http"
 	"runtime/metrics"
-	"time"
 
 	circlerriov1alpha1 "github.com/octopipe/circlerr/internal/api/v1alpha1"
 	"github.com/octopipe/circlerr/internal/cache"
@@ -12,6 +13,9 @@ import (
 	"github.com/octopipe/circlerr/internal/k8scontrollers"
 	"github.com/octopipe/circlerr/internal/reconciler"
 	"github.com/octopipe/circlerr/internal/template"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel/exporters/prometheus"
+	"go.opentelemetry.io/otel/sdk/metric"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/discovery"
@@ -33,7 +37,7 @@ func init() {
 func main() {
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
-		MetricsBindAddress:     ":8000",
+		MetricsBindAddress:     "0",
 		Port:                   9443,
 		HealthProbeBindAddress: ":8001",
 		LeaderElection:         false,
@@ -44,6 +48,12 @@ func main() {
 	}
 
 	config := ctrl.GetConfigOrDie()
+	exporter, err := prometheus.New()
+	if err != nil {
+		log.Fatal(err)
+	}
+	provider := metric.NewMeterProvider(metric.WithReader(exporter))
+	_ = provider.Meter("github.com/octopipe/circlerr")
 	discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(config)
 	dynamicClient := dynamic.NewForConfigOrDie(config)
 	gitManager := gitmanager.NewManager(mgr.GetClient())
@@ -74,10 +84,11 @@ func main() {
 	}
 
 	go func() {
-		ticker := time.NewTicker(time.Second * 5)
-		for {
-			<-ticker.C
-			tmpMetrics()
+		http.Handle("/metrics", promhttp.Handler())
+		fmt.Println("serving metrics....")
+		err := http.ListenAndServe(":8000", nil)
+		if err != nil {
+			panic(err)
 		}
 	}()
 

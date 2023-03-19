@@ -82,6 +82,8 @@ func (r reconciler) Preload(ctx context.Context) error {
 		return err
 	}
 
+	fmt.Println(r.cache.List())
+
 	return nil
 }
 
