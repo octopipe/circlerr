@@ -26,13 +26,6 @@ func isSupportedVerb(verbs []string) bool {
 	return foundList && foundWatch
 }
 
-func IsManagedObject(un *unstructured.Unstructured) bool {
-	a := un.GetAnnotations()
-	isControlled := a[annotation.ControlledByAnnotation] == annotation.ControlledByAnnotationValue
-
-	return isControlled
-}
-
 func ParseRef(ref string) (string, string) {
 	s := strings.Split(ref, "/")
 	if len(s) == 1 {

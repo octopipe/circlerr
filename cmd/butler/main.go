@@ -14,9 +14,11 @@ import (
 	"github.com/octopipe/circlerr/internal/k8scontrollers"
 	"github.com/octopipe/circlerr/internal/reconciler"
 	"github.com/octopipe/circlerr/internal/template"
+	"github.com/octopipe/circlerr/internal/utils/annotation"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/sdk/metric"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/discovery"
@@ -60,9 +62,15 @@ func main() {
 	dynamicClient := dynamic.NewForConfigOrDie(config)
 	gitManager := gitmanager.NewManager(mgr.GetClient())
 	templateManager := template.NewTemplate(mgr.GetClient())
-	k8sReconciler := reconciler.NewReconciler(discoveryClient, dynamicClient, cache.NewInMemoryCache(), template.NewTemplate(mgr.GetClient()))
+	clusterCache := cache.NewInMemoryCache()
+	k8sReconciler := reconciler.NewReconciler(discoveryClient, dynamicClient, clusterCache, template.NewTemplate(mgr.GetClient()))
 
-	err = k8sReconciler.Preload(context.Background())
+	err = k8sReconciler.Preload(context.Background(), func(un *unstructured.Unstructured) bool {
+		a := un.GetAnnotations()
+		isControlled := a[annotation.ControlledByAnnotation] == annotation.ControlledByAnnotationValue
+
+		return isControlled
+	})
 	if err != nil {
 		panic(err)
 	}

@@ -6,11 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	circlerriov1alpha1 "github.com/octopipe/circlerr/internal/api/v1alpha1"
 	"github.com/octopipe/circlerr/internal/cache"
 	"github.com/octopipe/circlerr/internal/resource"
 	"github.com/octopipe/circlerr/internal/template"
-	"github.com/octopipe/circlerr/internal/utils/annotation"
 	"github.com/sergi/go-diff/diffmatchpatch"
 	"golang.org/x/sync/errgroup"
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
@@ -33,9 +31,32 @@ var (
 	}
 )
 
+const (
+	ReconcileSuccess = "RECONCILE_SUCCESS"
+	ReconcileFailed  = "RECONCILE_FAILED"
+)
+
+type ReconcileResourceResult struct {
+	Resource resource.Resource
+	Metadata map[string]string
+	Status   string
+	Error    string
+}
+
+type ReconcileResult struct {
+	Resources []ReconcileResourceResult
+	Status    string
+	Error     string
+}
+
 type Reconciler interface {
-	Preload(ctx context.Context) error
-	Reconcile(ctx context.Context, circle circlerriov1alpha1.Circle, objects []*unstructured.Unstructured) ([]circlerriov1alpha1.CircleStatusResource, error)
+	Preload(ctx context.Context, isManagedObject func(un *unstructured.Unstructured) bool) error
+	Reconcile(
+		ctx context.Context,
+		objects []*unstructured.Unstructured,
+		namespace string,
+		isMatch func(un *unstructured.Unstructured) bool,
+		addMetadata func(un *unstructured.Unstructured) map[string]string) (ReconcileResult, error)
 }
 
 type reconciler struct {
@@ -54,7 +75,7 @@ func NewReconciler(
 	cache cache.Cache,
 	templateManager template.Manager,
 ) Reconciler {
-	return reconciler{
+	return &reconciler{
 		dicoveryClient:     dicoveryClient,
 		dynamicClient:      dynamicClient,
 		cache:              cache,
@@ -65,7 +86,7 @@ func NewReconciler(
 	}
 }
 
-func (r reconciler) Preload(ctx context.Context) error {
+func (r reconciler) Preload(ctx context.Context, isManagedObject func(un *unstructured.Unstructured) bool) error {
 	apiResouceList, err := r.dicoveryClient.ServerPreferredResources()
 	if err != nil {
 		return err
@@ -78,7 +99,7 @@ func (r reconciler) Preload(ctx context.Context) error {
 				continue
 			}
 
-			g.Go(r.syncCache(ctx, resourceList, resource, IsManagedObject))
+			g.Go(r.syncCache(ctx, resourceList, resource, isManagedObject))
 		}
 	}
 
@@ -86,83 +107,107 @@ func (r reconciler) Preload(ctx context.Context) error {
 		return err
 	}
 
-	fmt.Println(r.cache.List())
+	return nil
+}
+
+func (r reconciler) getCurrentReconcileState(isMatch func(un *unstructured.Unstructured) bool) map[string]resource.Resource {
+	filter := func(res resource.Resource) bool {
+		return res.Object != nil && isMatch(res.Object)
+	}
+	return r.cache.Scan(filter)
+}
+
+func (r reconciler) modifyObjectInCluster(ctx context.Context, currentState map[string]resource.Resource, un *unstructured.Unstructured, resourceName string, namespace string) (resource.Resource, error) {
+	gvr := un.GroupVersionKind().GroupVersion().WithResource(resourceName)
+	dynamicResource := r.dynamicClient.Resource(gvr).Namespace(namespace)
+	managedResource := resource.GetResourceByObject(*un, resourceName, namespace, true)
+
+	fmt.Println(managedResource.GetKey(), currentState)
+
+	if _, ok := currentState[managedResource.GetKey()]; !ok {
+		fmt.Println("CREATE")
+		_, err := dynamicResource.Create(ctx, un, v1.CreateOptions{})
+		return resource.Resource{}, err
+	}
+	fmt.Println("UPDATE")
+	_, err := dynamicResource.Update(ctx, un, v1.UpdateOptions{})
+	return resource.Resource{}, err
+}
+
+func (r reconciler) deleteObjects(ctx context.Context, currentState map[string]resource.Resource, notDeleteResources map[string]bool, namespace string) error {
+	for key, m := range currentState {
+		if _, ok := notDeleteResources[key]; ok {
+			continue
+		}
+
+		gvr := m.Object.GroupVersionKind().GroupVersion().WithResource(m.ResourceName)
+		dynamicResource := r.dynamicClient.Resource(gvr).Namespace(namespace)
+		err := dynamicResource.Delete(ctx, m.Name, v1.DeleteOptions{})
+		if err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
 
-func (r reconciler) Reconcile(ctx context.Context, circle circlerriov1alpha1.Circle, objects []*unstructured.Unstructured) ([]circlerriov1alpha1.CircleStatusResource, error) {
-	mappedCircleResources := map[string]resource.ManagedResource{}
-	appliedResources := map[string]string{}
-	managedObjectsKeys := r.cache.ListManagedObjects()
-	result := []circlerriov1alpha1.CircleStatusResource{}
+// TODO: make circle cluster state diff
+func (r reconciler) Reconcile(
+	ctx context.Context,
+	objects []*unstructured.Unstructured,
+	namespace string,
+	isMatch func(un *unstructured.Unstructured) bool,
+	addMetadata func(un *unstructured.Unstructured) map[string]string) (ReconcileResult, error) {
 
-	for _, key := range managedObjectsKeys {
-		managedObject := r.cache.GetManagedObject(key)
-		fmt.Println("MAPPED", managedObject.Unstructured.GetAnnotations())
-		if r.isSameCircle(managedObject.Unstructured, circle.Name, circle.Namespace) {
-			mappedCircleResources[key] = managedObject
-
-		}
-	}
+	resourcesResult := []ReconcileResourceResult{}
+	modifiedResources := map[string]bool{}
+	currentState := r.getCurrentReconcileState(isMatch)
+	reconcileStatus := ReconcileSuccess
+	reconcileError := ""
 
 	for _, un := range objects {
+		currentReconcileStatus := ReconcileSuccess
+		currentReconcileError := ""
+
 		resourceName, err := r.getServerResource(un)
 		if err != nil {
-			return nil, err
+			return ReconcileResult{}, err
 		}
 
-		gvr := un.GroupVersionKind().GroupVersion().WithResource(resourceName)
-		dynamicResource := r.dynamicClient.Resource(gvr).Namespace(circle.Spec.Namespace)
-		managedResource := resource.ToManagedResource(un, resourceName)
-
-		if _, ok := mappedCircleResources[managedResource.GetKey()]; !ok {
-
-			_, err = dynamicResource.Create(ctx, un, v1.CreateOptions{})
-			if err != nil {
-				fmt.Println("CREATE APPLY", err)
-				return nil, err
-			}
-		} else {
-			_, err = dynamicResource.Update(ctx, un, v1.UpdateOptions{})
-			if err != nil {
-				fmt.Println("UPDATE APPLY", err)
-				return nil, err
-			}
-		}
-
-		appliedResources[managedResource.GetKey()] = ""
-		r.cache.SetManagedObject(managedResource.GetKey(), managedResource)
-
-		result = append(result, circlerriov1alpha1.CircleStatusResource{
-			Group:     un.GroupVersionKind().Group,
-			Kind:      un.GroupVersionKind().Kind,
-			Namespace: un.GetNamespace(),
-			Name:      un.GetName(),
-			Status: circlerriov1alpha1.CircleResourceStatus{
-				SyncedAt: time.Now().String(),
-			},
-			Module: circlerriov1alpha1.CircleResourceModule{
-				Name:      un.GetAnnotations()[annotation.ModuleNameAnnotation],
-				Namespace: un.GetAnnotations()[annotation.ModuleNamespaceAnnotation],
-			},
-		})
-	}
-
-	for key, m := range mappedCircleResources {
-		if _, ok := appliedResources[key]; ok {
-			continue
-		}
-
-		gvr := m.Unstructured.GroupVersionKind().GroupVersion().WithResource(m.ResourceName)
-		dynamicResource := r.dynamicClient.Resource(gvr).Namespace(circle.Spec.Namespace)
-		err := dynamicResource.Delete(ctx, m.Unstructured.GetName(), v1.DeleteOptions{})
+		managedResource, err := r.modifyObjectInCluster(ctx, currentState, un, resourceName, namespace)
 		if err != nil {
-			return nil, err
+			currentReconcileStatus = ReconcileFailed
+			currentReconcileError = err.Error()
+			reconcileStatus = ReconcileFailed
+			reconcileError = err.Error()
+		}
+
+		modifiedResources[managedResource.GetKey()] = true
+		resourcesResult = append(resourcesResult, ReconcileResourceResult{
+			Resource: managedResource,
+			Metadata: addMetadata(un),
+			Status:   currentReconcileStatus,
+			Error:    currentReconcileError,
+		})
+
+		if currentReconcileStatus == ReconcileSuccess {
+			r.cache.Set(managedResource.GetKey(), managedResource)
 		}
 	}
 
-	return result, nil
+	if reconcileStatus == ReconcileSuccess {
+		err := r.deleteObjects(ctx, currentState, modifiedResources, namespace)
+		if err != nil {
+			reconcileStatus = ReconcileFailed
+			reconcileError = err.Error()
+		}
+	}
+
+	return ReconcileResult{
+		Resources: resourcesResult,
+		Status:    reconcileStatus,
+		Error:     reconcileError,
+	}, nil
 }
 
 func (r reconciler) syncCache(ctx context.Context, resourceList *v1.APIResourceList, apiResource v1.APIResource, isManagedObject func(un *unstructured.Unstructured) bool) func() error {
@@ -177,22 +222,17 @@ func (r reconciler) syncCache(ctx context.Context, resourceList *v1.APIResourceL
 		}
 
 		for _, un := range uns.Items {
-			if IsManagedObject(&un) {
-				newResource := resource.ToManagedResource(&un, apiResource.Name)
-				r.cache.SetManagedObject(newResource.GetKey(), newResource)
-			} else {
-				newResource := resource.ToResource(&un, apiResource.Name)
-				r.cache.Set(newResource.GetKey(), newResource)
-			}
-
+			isManaged := isManagedObject(&un)
+			newRes := resource.GetResourceByObject(un, apiResource.Name, "", isManaged)
+			r.cache.Set(newRes.GetKey(), newRes)
 		}
 
-		go r.watch(ctx, uns.GetResourceVersion(), apiResource.Name, dynamicInterface)
+		// go r.watch(ctx, uns.GetResourceVersion(), apiResource.Name, dynamicInterface, isManagedObject)
 		return nil
 	}
 }
 
-func (r reconciler) watch(ctx context.Context, resourceVersion string, apiResourceName string, dynamicInterface dynamic.NamespaceableResourceInterface) {
+func (r reconciler) watch(ctx context.Context, resourceVersion string, apiResourceName string, dynamicInterface dynamic.NamespaceableResourceInterface, isManagedObject func(un *unstructured.Unstructured) bool) {
 	wait.PollImmediateUntil(time.Second*3, func() (bool, error) {
 		w, err := watchutil.NewRetryWatcher(resourceVersion, &clientCache.ListWatch{
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
@@ -230,13 +270,8 @@ func (r reconciler) watch(ctx context.Context, resourceVersion string, apiResour
 				if event.Type == watch.Deleted && r.cache.Has(key) {
 					r.cache.Delete(key)
 				} else {
-					if IsManagedObject(obj) {
-						newResource := resource.ToManagedResource(obj, apiResourceName)
-						r.cache.SetManagedObject(newResource.GetKey(), newResource)
-					} else {
-						newResource := resource.ToResource(obj, apiResourceName)
-						r.cache.Set(newResource.GetKey(), newResource)
-					}
+					newRes := resource.GetResourceByObject(*obj, apiResourceName, "", isManagedObject(obj))
+					r.cache.Set(newRes.GetKey(), newRes)
 				}
 			}
 		}

@@ -1,7 +1,11 @@
 package cache
 
 import (
+	"bufio"
+	"fmt"
+	"os"
 	"sync"
+	"time"
 
 	"github.com/octopipe/circlerr/internal/resource"
 )
@@ -9,15 +13,39 @@ import (
 type localCache struct {
 	mu sync.RWMutex
 
-	cache          map[string]resource.Resource
-	managedObjects map[string]resource.ManagedResource
+	cache map[string]resource.Resource
 }
 
 func NewInMemoryCache() Cache {
 	localCache := &localCache{
-		cache:          make(map[string]resource.Resource),
-		managedObjects: make(map[string]resource.ManagedResource),
+		cache: make(map[string]resource.Resource),
 	}
+
+	go func() {
+		for {
+			f, err := os.Create(fmt.Sprintf("data/cache-%d", time.Now().Unix()))
+			if err != nil {
+				panic(err)
+			}
+
+			w := bufio.NewWriter(f)
+			for key, value := range localCache.cache {
+				if value.Object != nil {
+					_, err := w.WriteString(fmt.Sprintf("%s\n", key))
+					if err != nil {
+						panic(err)
+					}
+				}
+
+			}
+
+			w.Flush()
+
+			fmt.Printf("persist %d cache items\n", len(localCache.cache))
+
+			<-time.After(20 * time.Second)
+		}
+	}()
 
 	return localCache
 }
@@ -37,15 +65,6 @@ func (l *localCache) Get(key string) resource.Resource {
 	return res
 }
 
-func (l *localCache) GetManagedObject(key string) resource.ManagedResource {
-	res, ok := l.managedObjects[key]
-	if !ok {
-		return resource.ManagedResource{}
-	}
-
-	return res
-}
-
 func (l *localCache) Set(key string, resource resource.Resource) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -53,28 +72,13 @@ func (l *localCache) Set(key string, resource resource.Resource) {
 	l.cache[key] = resource
 }
 
-func (l *localCache) SetManagedObject(key string, resource resource.ManagedResource) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+func (l *localCache) Scan(filter func(res resource.Resource) bool) map[string]resource.Resource {
+	keys := map[string]resource.Resource{}
 
-	l.managedObjects[key] = resource
-}
-
-func (l *localCache) List() []string {
-	keys := []string{}
-
-	for key := range l.cache {
-		keys = append(keys, key)
-	}
-
-	return keys
-}
-
-func (l *localCache) ListManagedObjects() []string {
-	keys := []string{}
-
-	for key := range l.managedObjects {
-		keys = append(keys, key)
+	for key, value := range l.cache {
+		if filter(value) {
+			keys[key] = value
+		}
 	}
 
 	return keys

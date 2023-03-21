@@ -84,6 +84,7 @@ type CircleStatus struct {
 	SyncStatus string                 `json:"syncStatus,omitempty"`
 	SyncedAt   string                 `json:"syncTime,omitempty"`
 	Resources  []CircleStatusResource `json:"resources,omitempty"`
+	Error      string                 `json:"error,omitempty"`
 }
 
 //+kubebuilder:object:root=true

@@ -73,6 +73,8 @@ spec:
             type: object
           status:
             properties:
+              error:
+                type: string
               history:
                 items:
                   properties:
