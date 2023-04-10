@@ -1,15 +1,14 @@
-package template
+package templatemanager
 
 import (
 	"context"
 	"errors"
-	"fmt"
 
+	"github.com/goccy/go-yaml"
+	"github.com/goccy/go-yaml/parser"
 	circlerriov1alpha1 "github.com/octopipe/circlerr/internal/api/v1alpha1"
 	"github.com/octopipe/circlerr/internal/domain"
-	"github.com/octopipe/circlerr/internal/utils/annotation"
 	"github.com/octopipe/circlerr/internal/utils/manifest"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -18,22 +17,22 @@ type Template interface {
 	GetManifests(ctx context.Context, module circlerriov1alpha1.Module, circle circlerriov1alpha1.Circle) ([][]byte, error)
 }
 
-type Manager struct {
+type TemplateManager struct {
 	client.Client
 	simpleTemplate Template
 	helmTemplate   Template
 }
 
-func NewTemplate(client client.Client) Manager {
-	return Manager{
+func NewTemplateManager(client client.Client) TemplateManager {
+	return TemplateManager{
 		Client:         client,
 		simpleTemplate: NewSimpleTemplate(client),
 		helmTemplate:   NewHelmTemplate(client),
 	}
 }
 
-func (t Manager) GetObjects(ctx context.Context, circle circlerriov1alpha1.Circle) ([]*unstructured.Unstructured, error) {
-	objects := []*unstructured.Unstructured{}
+func (t TemplateManager) RenderManifests(ctx context.Context, circle circlerriov1alpha1.Circle) ([]string, error) {
+	manifests := []string{}
 
 	for _, circleModule := range circle.Spec.Modules {
 		module := &circlerriov1alpha1.Module{}
@@ -49,28 +48,53 @@ func (t Manager) GetObjects(ctx context.Context, circle circlerriov1alpha1.Circl
 		}
 
 		for _, r := range rawManifests {
+
 			splitedManifests, err := manifest.SplitManifests(r)
 			if err != nil {
 				return nil, err
 			}
 
 			for _, m := range splitedManifests {
-				object, err := manifest.ToUnstructured(m)
+				m, err := t.overrideValues(m, circleModule.Overrides)
 				if err != nil {
 					return nil, err
 				}
+				manifests = append(manifests, m)
 
-				object.SetName(fmt.Sprintf("%s-%s", circle.GetName(), object.GetName()))
-				object = annotation.AddDefaultAnnotationsToObject(object, *module, circle, m)
-				objects = append(objects, object)
 			}
 		}
 	}
 
-	return objects, nil
+	return manifests, nil
 }
 
-func (t Manager) getManifests(ctx context.Context, module circlerriov1alpha1.Module, circle circlerriov1alpha1.Circle) ([][]byte, error) {
+func (t TemplateManager) overrideValues(manifest string, overrides []circlerriov1alpha1.Override) (string, error) {
+	file, err := parser.ParseBytes([]byte(manifest), 1)
+	if err != nil {
+		return "", err
+	}
+
+	for _, override := range overrides {
+		p, err := yaml.PathString(override.Key)
+		if err != nil {
+			return "", err
+		}
+
+		node, err := yaml.NewEncoder(nil, yaml.JSON()).EncodeToNode(override.Value)
+		if err != nil {
+			return "", err
+		}
+
+		err = p.ReplaceWithNode(file, node)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	return file.String(), nil
+}
+
+func (t TemplateManager) getManifests(ctx context.Context, module circlerriov1alpha1.Module, circle circlerriov1alpha1.Circle) ([][]byte, error) {
 	switch module.Spec.TemplateType {
 	case domain.SimpleModuleTemplateType:
 		return t.simpleTemplate.GetManifests(ctx, module, circle)

@@ -18,21 +18,16 @@ const (
 
 func AddDefaultAnnotationsToObject(
 	un *unstructured.Unstructured,
-	module circlerriov1alpha1.Module,
 	circle circlerriov1alpha1.Circle,
-	snapshot string,
 ) *unstructured.Unstructured {
 	annotations := un.GetAnnotations()
 	if annotations == nil {
 		annotations = map[string]string{}
 	}
 
-	annotations[SnapshotAnnotation] = snapshot
 	annotations[ControlledByAnnotation] = ControlledByAnnotationValue
 	annotations[CircleNameAnnotation] = circle.GetName()
 	annotations[CircleNamespaceAnnotation] = circle.GetNamespace()
-	annotations[ModuleNameAnnotation] = module.GetName()
-	annotations[ModuleNamespaceAnnotation] = module.GetNamespace()
 
 	un.SetAnnotations(annotations)
 	return un

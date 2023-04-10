@@ -7,22 +7,22 @@ import (
 	"net/http"
 	"runtime/metrics"
 
+	"github.com/go-logr/zapr"
 	"github.com/joho/godotenv"
 	circlerriov1alpha1 "github.com/octopipe/circlerr/internal/api/v1alpha1"
-	"github.com/octopipe/circlerr/internal/cache"
 	"github.com/octopipe/circlerr/internal/gitmanager"
 	"github.com/octopipe/circlerr/internal/k8scontrollers"
-	"github.com/octopipe/circlerr/internal/reconciler"
-	"github.com/octopipe/circlerr/internal/template"
+	"github.com/octopipe/circlerr/internal/templatemanager"
 	"github.com/octopipe/circlerr/internal/utils/annotation"
+	"github.com/octopipe/circlerr/pkg/twice/cache"
+	"github.com/octopipe/circlerr/pkg/twice/reconciler"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/sdk/metric"
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/client-go/discovery"
-	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -51,6 +51,7 @@ func main() {
 		panic(err)
 	}
 
+	logger, _ := zap.NewProduction()
 	config := ctrl.GetConfigOrDie()
 	exporter, err := prometheus.New()
 	if err != nil {
@@ -58,19 +59,17 @@ func main() {
 	}
 	provider := metric.NewMeterProvider(metric.WithReader(exporter))
 	_ = provider.Meter("github.com/octopipe/circlerr")
-	discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(config)
-	dynamicClient := dynamic.NewForConfigOrDie(config)
 	gitManager := gitmanager.NewManager(mgr.GetClient())
-	templateManager := template.NewTemplate(mgr.GetClient())
-	clusterCache := cache.NewInMemoryCache()
-	k8sReconciler := reconciler.NewReconciler(discoveryClient, dynamicClient, clusterCache, template.NewTemplate(mgr.GetClient()))
+	templateManager := templatemanager.NewTemplateManager(mgr.GetClient())
+	clusterCache := cache.NewLocalCache()
+	k8sReconciler := reconciler.NewReconciler(zapr.NewLogger(logger), config, clusterCache)
 
 	err = k8sReconciler.Preload(context.Background(), func(un *unstructured.Unstructured) bool {
 		a := un.GetAnnotations()
 		isControlled := a[annotation.ControlledByAnnotation] == annotation.ControlledByAnnotationValue
 
 		return isControlled
-	})
+	}, true)
 	if err != nil {
 		panic(err)
 	}

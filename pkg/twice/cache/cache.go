@@ -1,10 +1,10 @@
 package cache
 
-import "github.com/octopipe/circlerr/internal/resource"
+import "github.com/octopipe/circlerr/pkg/twice/resource"
 
 type Cache interface {
 	Set(key string, resource resource.Resource)
-	Scan(filter func(res resource.Resource) bool) map[string]resource.Resource
+	List(filter func(res resource.Resource) bool) []string
 	Has(key string) bool
 	Get(key string) resource.Resource
 	Delete(key string)

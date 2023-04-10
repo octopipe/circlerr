@@ -7,9 +7,9 @@ import (
 
 	circlerriov1alpha1 "github.com/octopipe/circlerr/internal/api/v1alpha1"
 	"github.com/octopipe/circlerr/internal/gitmanager"
-	"github.com/octopipe/circlerr/internal/reconciler"
-	"github.com/octopipe/circlerr/internal/template"
+	"github.com/octopipe/circlerr/internal/templatemanager"
 	"github.com/octopipe/circlerr/internal/utils/annotation"
+	"github.com/octopipe/circlerr/pkg/twice/reconciler"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -27,14 +27,14 @@ type circleController struct {
 	scheme          *runtime.Scheme
 	reconciler      reconciler.Reconciler
 	gitManager      gitmanager.Manager
-	templateManager template.Manager
+	templateManager templatemanager.TemplateManager
 }
 
 func NewCircleController(
 	client client.Client,
 	scheme *runtime.Scheme,
 	gitManager gitmanager.Manager,
-	templateManager template.Manager,
+	templateManager templatemanager.TemplateManager,
 	reconciler reconciler.Reconciler,
 ) circleController {
 	return circleController{
@@ -70,35 +70,35 @@ func (r *circleController) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	}
 
-	objects, err := r.templateManager.GetObjects(ctx, circle)
+	manifests, err := r.templateManager.RenderManifests(ctx, circle)
 	if err != nil {
 		fmt.Println(err)
 		return ctrl.Result{}, err
 	}
 
-	reconcileResult, err := r.reconciler.Reconcile(
-		ctx,
-		objects,
-		circle.Spec.Namespace,
-		func(un *unstructured.Unstructured) bool {
-			circleName := un.GetAnnotations()[annotation.CircleNameAnnotation]
-			circleNamespace := un.GetAnnotations()[annotation.CircleNamespaceAnnotation]
+	preHook := func(un *unstructured.Unstructured) *unstructured.Unstructured {
+		un.SetName(fmt.Sprintf("%s-%s", circle.GetName(), un.GetName()))
+		un = annotation.AddDefaultAnnotationsToObject(un, circle)
+		return un
+	}
 
-			return circleName == circle.Name && circleNamespace == circle.Namespace
-		},
-		func(un *unstructured.Unstructured) map[string]string {
-			return map[string]string{
-				"moduleName":      un.GetAnnotations()[annotation.ModuleNameAnnotation],
-				"moduleNamespace": un.GetAnnotations()[annotation.ModuleNamespaceAnnotation],
-			}
-		},
-	)
+	planResults, err := r.reconciler.Plan(ctx, manifests, circle.Spec.Namespace, func(un *unstructured.Unstructured) bool {
+		circleName := un.GetAnnotations()[annotation.CircleNameAnnotation]
+		circleNamespace := un.GetAnnotations()[annotation.CircleNamespaceAnnotation]
+
+		return circleName == circle.Name && circleNamespace == circle.Namespace
+	}, preHook)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	applyResults, err := r.reconciler.Apply(ctx, planResults, circle.Spec.Namespace, preHook)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
 	resourceStatus := []circlerriov1alpha1.CircleStatusResource{}
-	for _, res := range reconcileResult.Resources {
+	for _, res := range applyResults {
 		resourceStatus = append(resourceStatus, circlerriov1alpha1.CircleStatusResource{
 			Group:     res.Resource.Group,
 			Kind:      res.Resource.Kind,
@@ -108,17 +108,11 @@ func (r *circleController) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 				SyncStatus: res.Status,
 				SyncedAt:   time.Now().String(),
 			},
-			Module: circlerriov1alpha1.CircleResourceModule{
-				Name:      res.Metadata["moduleName"],
-				Namespace: res.Metadata["moduleNamespace"],
-			},
 		})
 	}
 
 	circle.Status = circlerriov1alpha1.CircleStatus{
-		Resources:  resourceStatus,
-		SyncStatus: reconcileResult.Status,
-		Error:      reconcileResult.Error,
+		Resources: resourceStatus,
 	}
 	// err = r.Status().Update(ctx, &circle)
 	// if err != nil {

@@ -35,5 +35,5 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 install: manifests ## Install CRDs into the K8s cluster specified in ~/.kube/config.
 	kubectl apply -f install/crd
 
-butler-run:
+butler:
 	go run cmd/butler/main.go
