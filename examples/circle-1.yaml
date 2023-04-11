@@ -10,6 +10,9 @@ spec:
     - name: module-1
       revision: revision-1
       namespace: default
+      overrides:
+        - value: "mayconjrpacheco/dragonboarding:ala"
+          key: "$.spec.template.spec.containers[0].image"
   environments:
     - key: API_URL
       value: http://localhost:7000/api

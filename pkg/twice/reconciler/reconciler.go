@@ -1,16 +1,11 @@
 package reconciler
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"reflect"
 	"time"
 
-	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/go-logr/logr"
 	"github.com/octopipe/circlerr/pkg/twice/cache"
 	"github.com/octopipe/circlerr/pkg/twice/resource"
@@ -18,10 +13,8 @@ import (
 	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
@@ -49,9 +42,9 @@ var (
 )
 
 type Reconciler interface {
+	Planner
 	Preload(ctx context.Context, isManaged isManagedFunc, liveUpdate bool) error
-	Plan(ctx context.Context, manifests []string, namespace string, isManaged isManagedFunc, preHook func(un *unstructured.Unstructured) *unstructured.Unstructured) ([]PlanResult, error)
-	Apply(ctx context.Context, planResults []PlanResult, namespace string, preHook func(un *unstructured.Unstructured) *unstructured.Unstructured) ([]ApplyResult, error)
+	Apply(ctx context.Context, planResults []PlanResult, namespace string) ([]ApplyResult, error)
 }
 
 type PlanResult struct {
@@ -71,6 +64,7 @@ type ApplyResult struct {
 type isManagedFunc func(un *unstructured.Unstructured) bool
 
 type reconciler struct {
+	Planner
 	logger logr.Logger
 	config *rest.Config
 	cache  cache.Cache
@@ -82,8 +76,10 @@ type reconciler struct {
 func NewReconciler(logger logr.Logger, config *rest.Config, cache cache.Cache) Reconciler {
 	dynamicClient := dynamic.NewForConfigOrDie(config)
 	discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(config)
+	planner := NewPlanner(cache, discoveryClient)
 
 	return reconciler{
+		Planner:         planner,
 		logger:          logger,
 		config:          config,
 		cache:           cache,
@@ -205,256 +201,20 @@ func (r reconciler) Preload(ctx context.Context, isManaged isManagedFunc, liveUp
 	return nil
 }
 
-func (r reconciler) splitManifest(manifest []byte) ([][]byte, error) {
-	decoder := yaml.NewYAMLOrJSONDecoder(bytes.NewReader(manifest), 4096)
-	manifests := [][]byte{}
-
-	for {
-		newManifest := runtime.RawExtension{}
-		err := decoder.Decode(&newManifest)
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return nil, err
-		}
-
-		newManifest.Raw = bytes.TrimSpace(newManifest.Raw)
-		if len(newManifest.Raw) == 0 || bytes.Equal(newManifest.Raw, []byte("null")) {
-			continue
-		}
-
-		manifests = append(manifests, newManifest.Raw)
-	}
-
-	return manifests, nil
-}
-
-func (r reconciler) deserializer(manifest []byte) (*unstructured.Unstructured, error) {
-	un := &unstructured.Unstructured{}
-	if err := json.Unmarshal([]byte(manifest), un); err != nil {
-		return nil, err
-	}
-
-	return un, nil
-}
-
-func (r reconciler) getLastAppliedConfiguration(un *unstructured.Unstructured) string {
-	annotations := un.GetAnnotations()
-
-	kubectlLastAppliedConfigurationAnnotation := "kubectl.kubernetes.io/last-applied-configuration"
-	kubectlLastAppliedConfiguration, ok := annotations[kubectlLastAppliedConfigurationAnnotation]
-	if ok {
-		return kubectlLastAppliedConfiguration
-	}
-
-	twiceLastAppliedConfig, ok := annotations[LastAppliedConfigurationAnnotation]
-	if ok {
-		return twiceLastAppliedConfig
-	}
-
-	return ""
-}
-
-func removeNulls(m map[string]interface{}) {
-	val := reflect.ValueOf(m)
-	for _, e := range val.MapKeys() {
-		v := val.MapIndex(e)
-		if v.IsNil() {
-			delete(m, e.String())
-			continue
-		}
-		switch t := v.Interface().(type) {
-		// If key is a JSON object (Go Map), use recursion to go deeper
-		case map[string]interface{}:
-			removeNulls(t)
-		}
-	}
-}
-
-func (r reconciler) getMergePatch(original []byte, modified []byte) ([]byte, error) {
-	patch, err := jsonpatch.CreateMergePatch(original, modified)
-	if err != nil {
-		return nil, err
-	}
-
-	p := map[string]interface{}{}
-	err = json.Unmarshal(patch, &p)
-	if err != nil {
-		return nil, err
-	}
-
-	removeNulls(p)
-
-	l, err := json.Marshal(p)
-	if err != nil {
-		return nil, err
-	}
-
-	return l, nil
-}
-
-func (r reconciler) getResourceName(un *unstructured.Unstructured) (string, error) {
-	apiResourceList, err := r.discoveryClient.ServerResourcesForGroupVersion(un.GroupVersionKind().GroupVersion().String())
-	if err != nil {
-		return "", err
-	}
-
-	for _, apiResource := range apiResourceList.APIResources {
-		if !isSupportedVerb(apiResource.Verbs) {
-			continue
-		}
-
-		if apiResource.Kind == un.GetKind() {
-			return apiResource.Name, nil
-		}
-	}
-
-	return "", errors.New("server resource not supported")
-}
-
-// TODO: Add hook before comparations for dynamic plan
-func (r reconciler) Plan(ctx context.Context, manifests []string, namespace string, isManaged isManagedFunc, preHook func(un *unstructured.Unstructured) *unstructured.Unstructured) ([]PlanResult, error) {
-	// TODO: Convert manifests to objects ()
-	// TODO: get all managed resources from cache
-	// TODO: make diff from cache with managed resources
-	// TODO: identify action by diff's (create, update or delete)
-	// TODO: return plan result
-
-	allManifests := [][]byte{}
-	result := []PlanResult{}
-
-	for _, m := range manifests {
-		splitedManifest, err := r.splitManifest([]byte(m))
-		if err != nil {
-			return nil, err
-		}
-
-		allManifests = append(allManifests, splitedManifest...)
-	}
-
-	for _, m := range allManifests {
-		un, err := r.deserializer(m)
-		if err != nil {
-			return nil, err
-		}
-
-		un = preHook(un)
-
-		resourceName, err := r.getResourceName(un)
-		if err != nil {
-			return nil, err
-		}
-
-		res := resource.NewResourceByUnstructured(*un, namespace, resourceName, true)
-
-		if !r.cache.Has(res.GetResourceIdentifier()) {
-			result = append(result, PlanResult{
-				Resource:       res,
-				Action:         PlanCreateAction,
-				SrcManifest:    string(m),
-				TargetManifest: string(m),
-				DiffString:     []string{},
-			})
-			continue
-		}
-
-		if err != nil {
-			return nil, err
-		}
-
-		currentResource := r.cache.Get(res.GetResourceIdentifier())
-		lastAppliedConfiguration := r.getLastAppliedConfiguration(currentResource.Object)
-		patch, err := r.getMergePatch([]byte(lastAppliedConfiguration), m)
-		if err != nil {
-			return nil, err
-		}
-
-		currentAction := PlanImmutableAction
-		target := []byte(lastAppliedConfiguration)
-		if string(patch) != "{}" {
-			currentAction = PlanUpdateAction
-
-			target, err = jsonpatch.MergePatch(target, patch)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		result = append(result, PlanResult{
-			Resource:       res,
-			Action:         currentAction,
-			SrcManifest:    string(m),
-			TargetManifest: string(target),
-			DiffString:     []string{},
-		})
-	}
-
-	resultsForDeletion := r.getPlanResultsForDeletion(isManaged, result)
-	result = append(result, resultsForDeletion...)
-
-	return result, nil
-}
-
-func (r *reconciler) getPlanResultsForDeletion(isManaged isManagedFunc, currentResults []PlanResult) []PlanResult {
-	result := []PlanResult{}
-	cachedResources := r.cache.List(func(res resource.Resource) bool {
-		return res.Object != nil && isManaged(res.Object)
-	})
-	for _, cachedKey := range cachedResources {
-		forDeletion := true
-		for _, planResult := range currentResults {
-			if cachedKey == planResult.GetResourceIdentifier() {
-				forDeletion = false
-			}
-		}
-
-		if forDeletion {
-			cachedItem := r.cache.Get(cachedKey)
-
-			isControlled := false
-			// Verifying if cached resource has a controller to prevent accidentally deleting
-			for _, owner := range cachedItem.Object.GetOwnerReferences() {
-				isController := owner.Controller
-				if isController != nil && *isController {
-					isControlled = true
-					break
-				}
-			}
-
-			if !isControlled {
-				result = append(result, PlanResult{
-					Resource:       cachedItem,
-					Action:         PlanDeleteAction,
-					SrcManifest:    r.getLastAppliedConfiguration(cachedItem.Object),
-					TargetManifest: "",
-				})
-			}
-		}
-	}
-
-	return result
-}
-
-func applyMetadataToObject(res PlanResult, metadata map[string]string) *unstructured.Unstructured {
-	un := res.Object
+func (r reconciler) SetLastAppliedConfiguration(un *unstructured.Unstructured, newConfiguration string) *unstructured.Unstructured {
 	currentAnnotations := un.GetAnnotations()
+
 	if currentAnnotations == nil {
-		currentAnnotations = map[string]string{}
+		currentAnnotations = make(map[string]string)
 	}
 
-	for k, v := range metadata {
-		currentAnnotations[k] = v
-	}
-
-	currentAnnotations[LastAppliedConfigurationAnnotation] = string(res.TargetManifest)
+	currentAnnotations[LastAppliedConfigurationAnnotation] = newConfiguration
 	un.SetAnnotations(currentAnnotations)
-
 	return un
 }
 
 // TODO: hook before apply is necessary?
-func (r reconciler) Apply(ctx context.Context, planResults []PlanResult, namespace string, preHook func(un *unstructured.Unstructured) *unstructured.Unstructured) ([]ApplyResult, error) {
+func (r reconciler) Apply(ctx context.Context, planResults []PlanResult, namespace string) ([]ApplyResult, error) {
 	result := []ApplyResult{}
 
 	if len(planResults) <= 0 {
@@ -471,9 +231,8 @@ func (r reconciler) Apply(ctx context.Context, planResults []PlanResult, namespa
 		}).Namespace(namespace)
 
 		if res.Action == PlanCreateAction {
-			modifiedObject := preHook(res.Object)
-			_, err := dynamicInterface.Create(ctx, modifiedObject, v1.CreateOptions{})
-
+			res.Object = r.SetLastAppliedConfiguration(res.Object, res.TargetManifest)
+			_, err := dynamicInterface.Create(ctx, res.Object, v1.CreateOptions{})
 			if err != nil {
 				newApplyResult.Err = err
 				result = append(result, newApplyResult)
@@ -485,22 +244,16 @@ func (r reconciler) Apply(ctx context.Context, planResults []PlanResult, namespa
 		}
 
 		if res.Action == PlanUpdateAction {
+			res.Object = r.SetLastAppliedConfiguration(res.Object, res.TargetManifest)
 			err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
-
-				target := &unstructured.Unstructured{}
-				err := json.Unmarshal([]byte(res.TargetManifest), target)
-				if err != nil {
-					return err
-				}
-
-				modifiedObject := preHook(target)
-				_, err = dynamicInterface.Update(ctx, modifiedObject, v1.UpdateOptions{})
+				_, err := dynamicInterface.Update(ctx, res.Object, v1.UpdateOptions{})
 				if err != nil {
 					return err
 				}
 
 				return nil
 			})
+
 			if err != nil {
 				newApplyResult.Err = err
 				result = append(result, newApplyResult)

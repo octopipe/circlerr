@@ -75,6 +75,7 @@ func main() {
 	}
 
 	k8sCircleController := k8scontrollers.NewCircleController(
+		logger,
 		mgr.GetClient(),
 		mgr.GetScheme(),
 		gitManager,

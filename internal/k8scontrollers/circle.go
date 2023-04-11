@@ -10,12 +10,12 @@ import (
 	"github.com/octopipe/circlerr/internal/templatemanager"
 	"github.com/octopipe/circlerr/internal/utils/annotation"
 	"github.com/octopipe/circlerr/pkg/twice/reconciler"
+	"go.uber.org/zap"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type CircleController interface {
@@ -24,6 +24,7 @@ type CircleController interface {
 
 type circleController struct {
 	client.Client
+	logger          *zap.Logger
 	scheme          *runtime.Scheme
 	reconciler      reconciler.Reconciler
 	gitManager      gitmanager.Manager
@@ -31,6 +32,7 @@ type circleController struct {
 }
 
 func NewCircleController(
+	logger *zap.Logger,
 	client client.Client,
 	scheme *runtime.Scheme,
 	gitManager gitmanager.Manager,
@@ -38,6 +40,7 @@ func NewCircleController(
 	reconciler reconciler.Reconciler,
 ) circleController {
 	return circleController{
+		logger:          logger,
 		Client:          client,
 		scheme:          scheme,
 		reconciler:      reconciler,
@@ -47,54 +50,25 @@ func NewCircleController(
 }
 
 func (r *circleController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
-
 	circle := circlerriov1alpha1.Circle{}
 	err := r.Get(ctx, req.NamespacedName, &circle)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	for _, m := range circle.Spec.Modules {
-		module := circlerriov1alpha1.Module{}
-		key := types.NamespacedName{Namespace: m.Namespace, Name: m.Name}
-		err = r.Get(ctx, key, &module)
+	applyResults := []reconciler.ApplyResult{}
+	if len(circle.Finalizers) > 0 {
+		r.logger.Info(fmt.Sprintf("circle %s with finalizers", req), zap.Any("finalizers", circle.Finalizers))
+		applyResults, err = r.forDeletion(ctx, circle)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-
-		err = r.gitManager.Sync(module)
+	} else {
+		r.logger.Info(fmt.Sprintf("apply circle %s", req))
+		applyResults, err = r.forApply(ctx, circle)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-
-	}
-
-	manifests, err := r.templateManager.RenderManifests(ctx, circle)
-	if err != nil {
-		fmt.Println(err)
-		return ctrl.Result{}, err
-	}
-
-	preHook := func(un *unstructured.Unstructured) *unstructured.Unstructured {
-		un.SetName(fmt.Sprintf("%s-%s", circle.GetName(), un.GetName()))
-		un = annotation.AddDefaultAnnotationsToObject(un, circle)
-		return un
-	}
-
-	planResults, err := r.reconciler.Plan(ctx, manifests, circle.Spec.Namespace, func(un *unstructured.Unstructured) bool {
-		circleName := un.GetAnnotations()[annotation.CircleNameAnnotation]
-		circleNamespace := un.GetAnnotations()[annotation.CircleNamespaceAnnotation]
-
-		return circleName == circle.Name && circleNamespace == circle.Namespace
-	}, preHook)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	applyResults, err := r.reconciler.Apply(ctx, planResults, circle.Spec.Namespace, preHook)
-	if err != nil {
-		return ctrl.Result{}, err
 	}
 
 	resourceStatus := []circlerriov1alpha1.CircleStatusResource{}
@@ -120,6 +94,62 @@ func (r *circleController) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// }
 
 	return ctrl.Result{}, nil
+}
+
+func (r circleController) forApply(ctx context.Context, circle circlerriov1alpha1.Circle) ([]reconciler.ApplyResult, error) {
+	for _, m := range circle.Spec.Modules {
+		module := circlerriov1alpha1.Module{}
+		key := types.NamespacedName{Namespace: m.Namespace, Name: m.Name}
+		err := r.Get(ctx, key, &module)
+		if err != nil {
+			return nil, err
+		}
+
+		err = r.gitManager.Sync(module)
+		if err != nil {
+			return nil, err
+		}
+
+	}
+
+	manifests, err := r.templateManager.RenderManifests(ctx, circle)
+	if err != nil {
+		return nil, err
+	}
+
+	preHook := func(un *unstructured.Unstructured) *unstructured.Unstructured {
+		un.SetName(fmt.Sprintf("%s-%s", circle.GetName(), un.GetName()))
+		un = annotation.AddDefaultAnnotationsToObject(un, circle)
+		return un
+	}
+
+	planResults, err := r.reconciler.Plan(ctx, manifests, circle.Spec.Namespace, func(un *unstructured.Unstructured) bool {
+		circleName := un.GetAnnotations()[annotation.CircleNameAnnotation]
+		circleNamespace := un.GetAnnotations()[annotation.CircleNamespaceAnnotation]
+
+		return circleName == circle.Name && circleNamespace == circle.Namespace
+	}, reconciler.WithPreHook(preHook))
+	if err != nil {
+		return nil, err
+	}
+
+	applyResults, err := r.reconciler.Apply(ctx, planResults, circle.Spec.Namespace)
+	return applyResults, err
+}
+
+func (r circleController) forDeletion(ctx context.Context, circle circlerriov1alpha1.Circle) ([]reconciler.ApplyResult, error) {
+	planResults, err := r.reconciler.Plan(ctx, []string{}, circle.Spec.Namespace, func(un *unstructured.Unstructured) bool {
+		circleName := un.GetAnnotations()[annotation.CircleNameAnnotation]
+		circleNamespace := un.GetAnnotations()[annotation.CircleNamespaceAnnotation]
+
+		return circleName == circle.Name && circleNamespace == circle.Namespace
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	applyResults, err := r.reconciler.Apply(ctx, planResults, circle.Spec.Namespace)
+	return applyResults, err
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -48,7 +48,6 @@ func (t TemplateManager) RenderManifests(ctx context.Context, circle circlerriov
 		}
 
 		for _, r := range rawManifests {
-
 			splitedManifests, err := manifest.SplitManifests(r)
 			if err != nil {
 				return nil, err
@@ -60,7 +59,6 @@ func (t TemplateManager) RenderManifests(ctx context.Context, circle circlerriov
 					return nil, err
 				}
 				manifests = append(manifests, m)
-
 			}
 		}
 	}

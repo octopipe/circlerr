@@ -101,14 +101,10 @@ spec:
 		return controlledBy == "twice.io" && specificSection == "section-1"
 	}
 
-	planResults, err := suite.reconciler.Plan(context.TODO(), []string{deployment, service}, "default", isManagedBySpecificSection, func(un *unstructured.Unstructured) *unstructured.Unstructured {
-		return un
-	})
+	planResults, err := suite.reconciler.Plan(context.TODO(), []string{deployment, service}, "default", isManagedBySpecificSection)
 	assert.NoError(suite.T(), err)
 
-	_, err = suite.reconciler.Apply(context.TODO(), planResults, "default", func(un *unstructured.Unstructured) *unstructured.Unstructured {
-		return un
-	})
+	_, err = suite.reconciler.Apply(context.TODO(), planResults, "default")
 	assert.NoError(suite.T(), err)
 }
 
